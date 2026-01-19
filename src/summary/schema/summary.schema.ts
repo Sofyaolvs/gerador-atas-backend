@@ -1,6 +1,7 @@
-import { Prop } from "@nestjs/mongoose";
-import {Types } from 'mongoose';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { Types } from 'mongoose';
 
+@Schema()
 export class Summary {
     
     _id: Types.ObjectId;
@@ -8,8 +9,8 @@ export class Summary {
     @Prop({ required: true })
     meetingId: Types.ObjectId;
 
-    @Prop({ required: true })
-    jsonData: any;
+    @Prop({type: Object, required: true })
+    meetingData: any;
 
     @Prop({ required: true })
     summary: string;
@@ -18,3 +19,4 @@ export class Summary {
     created_at: Date;
 }
 
+export const SummarySchema = SchemaFactory.createForClass(Summary);

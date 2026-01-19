@@ -19,7 +19,7 @@ services:
       ports:
         - '3001:3000'
       env_file:
-        - .env
+        - .env.docker
       depends_on:
         mongodb:
           condition: service_healthy
