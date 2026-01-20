@@ -87,4 +87,32 @@ Gere a ata de reunião:
         const response = result.response;
         return response.text();
     }
+
+    async findAllSummary():Promise<Summary[]>{
+        try {
+            return await this.summaryModel.find()
+        } catch (error) {
+            throw new Error(`Erro ao buscar atas de reunião: ${error.message}`);
+        }
+    }
+
+    async findSummaryById(id:string):Promise<Summary|null>{
+        try {
+            const summary = this.summaryModel.findById(id)
+            if(!summary){
+                throw new Error(`Summary with ID ${id} not found`);
+            }
+            return summary
+        } catch (error) {
+            throw new Error(`Erro ao buscar ata de reunião: ${error.message}`);
+        }
+    }
+
+    async deleteSummary(id:string):Promise<void>{
+        try {
+            await this.summaryModel.findByIdAndDelete(id)
+        } catch (error) {
+            throw new Error(`Erro ao deletar ata de reunião: ${error.message}`);
+        }
+    }
 }
