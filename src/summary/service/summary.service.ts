@@ -5,6 +5,7 @@ import { Model } from "mongoose";
 import { InjectModel } from "@nestjs/mongoose";
 import { SummaryDto } from "../dto/summary.dto";
 import { Meeting } from "src/meeting/schema/meeting.schems";
+import { Project } from "src/project/schema/project.schema";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 @Injectable()
@@ -15,6 +16,7 @@ export class SummaryService {
     constructor(
         @InjectModel(Summary.name) private readonly summaryModel: Model<Summary>,
         @InjectModel(Meeting.name) private readonly meetingModel: Model<Meeting>,
+        @InjectModel(Project.name) private readonly projectModel: Model<Project>,
         private readonly configService: ConfigService
     ) {
         const apiKey = this.configService.get<string>('GEMINI_API_KEY');
@@ -31,6 +33,24 @@ export class SummaryService {
                 throw new Error(`Meeting with ID ${summaryDto.meetingId} not found`);
             }
 
+            // Buscar dados do projeto
+            const project = await this.projectModel.findById(meeting.projectId);
+            const projectData = project ? {
+                name: project.name,
+                description: project.description
+            } : null;
+
+            // Buscar atas anteriores do mesmo projeto
+            const previousMeetings = await this.meetingModel.find({
+                projectId: meeting.projectId,
+                _id: { $ne: meeting._id }
+            }).sort({ date: -1 });
+
+            const previousMeetingIds = previousMeetings.map(m => m._id);
+            const previousSummaries = await this.summaryModel.find({
+                meetingId: { $in: previousMeetingIds }
+            }).sort({ created_at: -1 }).limit(3);
+
             const meetingJson = {
                 projectId: meeting.projectId,
                 participants: meeting.participants,
@@ -39,7 +59,7 @@ export class SummaryService {
                 pending_tasks: meeting.pending_tasks,
             }
 
-            const generatedSummary = await this.callGeminiAPI(meetingJson)
+            const generatedSummary = await this.callGeminiAPI(meetingJson, projectData, previousSummaries)
 
             const newSummary = new this.summaryModel({
                 meetingId: summaryDto.meetingId,
@@ -53,32 +73,57 @@ export class SummaryService {
         }
     }
 
-    private async callGeminiAPI(meetingData: any): Promise<string> {
+    private async callGeminiAPI(
+        meetingData: any,
+        projectData: { name: string; description: string } | null,
+        previousSummaries: Summary[]
+    ): Promise<string> {
         if (!this.genAI) {
             throw new Error('Gemini API key não configurada. Configure a variável GEMINI_API_KEY no arquivo .env');
         }
 
         const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+        const projectSection = projectData
+            ? `Projeto: ${projectData.name}
+Descrição do Projeto: ${projectData.description}
+
+`
+            : '';
+
+        let previousSummariesSection = '';
+        if (previousSummaries.length > 0) {
+            previousSummariesSection = `
+Atas Anteriores do Projeto (para contexto e continuidade):
+${previousSummaries.map((s, index) => `
+--- Ata ${index + 1} ---
+${s.summary}
+`).join('\n')}
+
+`;
+        }
+
         const prompt = `
 Você é um assistente especializado em criar atas de reunião profissionais, objetivas e bem estruturadas.
 
 Com base nas seguintes informações da reunião, gere uma ata formal e clara:
 
-Dados da Reunião:
+${projectSection}Dados da Reunião:
 
 Data: ${meetingData.date}
 Participantes: ${Array.isArray(meetingData.participants) ? meetingData.participants.join(', ') : meetingData.participants}
 Tópicos Discutidos: ${meetingData.topics}
 Tarefas Pendentes: ${meetingData.pending_tasks}
-
+${previousSummariesSection}
 Instruções:
 1. Gere uma ata formal contendo cabeçalho e corpo
-2. Liste apenas os participantes (não incluir ausentes)
-3. Organize os tópicos discutidos de forma clara, objetiva e profissional
-4. Liste as tarefas pendentes com seus respectivos responsáveis, quando informados
-5. Inclua uma seção de Próximos Passos, se aplicável
-6. Não incluir assinaturas, encerramento, horário ou local
+2. Inclua o nome do projeto no cabeçalho da ata
+3. Liste apenas os participantes (não incluir ausentes)
+4. Organize os tópicos discutidos de forma clara, objetiva e profissional
+5. Liste as tarefas pendentes com seus respectivos responsáveis, quando informados
+6. Inclua uma seção de Próximos Passos, se aplicável
+7. Se houver atas anteriores, considere o contexto e a continuidade das discussões e tarefas pendentes
+8. Não incluir assinaturas, encerramento, horário ou local
 Utilize português brasileiro e formatação profissional
 Gere a ata de reunião:
 `;
