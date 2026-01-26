@@ -7,6 +7,7 @@ import { ProjectModule } from './project/project.module';
 import { MeetingModule } from './meeting/meeting.module';
 import { SummaryModule } from './summary/summary.module';
 import { SeederModule } from './project/seeds/seed.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { SeederModule } from './project/seeds/seed.module';
     MeetingModule,
     SummaryModule,
     SeederModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],
