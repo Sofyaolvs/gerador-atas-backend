@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Summary } from "../schema/summary.schema";
-import { Model } from "mongoose";
+import { Model, Types } from "mongoose";
 import { InjectModel } from "@nestjs/mongoose";
 import { SummaryDto } from "../dto/summary.dto";
 import { Meeting } from "src/meeting/schema/meeting.schems";
@@ -62,7 +62,7 @@ export class SummaryService {
             const generatedSummary = await this.callGeminiAPI(meetingJson, projectData, previousSummaries)
 
             const newSummary = new this.summaryModel({
-                meetingId: summaryDto.meetingId,
+                meetingId: new Types.ObjectId(summaryDto.meetingId),
                 meetingData: meetingJson,
                 summary: generatedSummary
             })

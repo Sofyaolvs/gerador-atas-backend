@@ -6,7 +6,7 @@ export class Summary {
     
     _id: Types.ObjectId;
 
-    @Prop({ required: true })
+    @Prop({ type: Types.ObjectId, ref: 'Meeting', required: true })
     meetingId: Types.ObjectId;
 
     @Prop({type: Object, required: true })

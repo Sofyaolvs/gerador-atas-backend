@@ -37,14 +37,20 @@ export class ChatService {
             }
 
             const meetings = await this.meetingModel.find({
-                projectId: new Types.ObjectId(chatDto.projectId)
-            }).sort({ date: -1 }); //+ recente p + antiga
+                $or: [
+                    { projectId: new Types.ObjectId(chatDto.projectId) },
+                    { projectId: chatDto.projectId }
+                ]
+            }).sort({ date: -1 });
 
-            
             const meetingIds = meetings.map(m => m._id);
+            const meetingIdStrings = meetings.map(m => m._id.toString());
             const summaries = await this.summaryModel.find({
-                meetingId: { $in: meetingIds }
-            }).sort({ created_at: -1 }); //tds as atas do projeto x
+                $or: [
+                    { meetingId: { $in: meetingIds } },
+                    { meetingId: { $in: meetingIdStrings } }
+                ]
+            }).sort({ created_at: -1 });
 
            
             const conversationHistory = await this.chatMessageModel.find({
