@@ -4,9 +4,12 @@ import { Summary } from "../schema/summary.schema";
 import { Model, Types } from "mongoose";
 import { InjectModel } from "@nestjs/mongoose";
 import { SummaryDto } from "../dto/summary.dto";
+import { UploadSummaryDto } from "../dto/upload-summary.dto";
 import { Meeting } from "src/meeting/schema/meeting.schems";
 import { Project } from "src/project/schema/project.schema";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { PDFParse } from "pdf-parse";
+import * as mammoth from "mammoth";
 
 @Injectable()
 export class SummaryService {
@@ -63,8 +66,10 @@ export class SummaryService {
 
             const newSummary = new this.summaryModel({
                 meetingId: new Types.ObjectId(summaryDto.meetingId),
+                projectId: meeting.projectId,
                 meetingData: meetingJson,
-                summary: generatedSummary
+                summary: generatedSummary,
+                sourceType: 'generated'
             })
             return await this.summaryModel.create(newSummary)
         } catch (error) {
@@ -159,5 +164,63 @@ Gere a ata de reunião:
         } catch (error) {
             throw new Error(`Erro ao deletar ata de reunião: ${error.message}`);
         }
+    }
+
+    async uploadSummary(
+        file: Express.Multer.File,
+        uploadDto: UploadSummaryDto
+    ): Promise<Summary> {
+        try {
+            const project = await this.projectModel.findById(uploadDto.projectId);
+            if (!project) {
+                throw new Error(`Projeto com ID ${uploadDto.projectId} não encontrado`);
+            }
+
+            const extractedText = await this.extractTextFromFile(file);
+
+            if (!extractedText || extractedText.trim().length === 0) {
+                throw new Error('Não foi possível extrair texto do arquivo');
+            }
+
+            const newSummary = new this.summaryModel({
+                projectId: new Types.ObjectId(uploadDto.projectId),
+                summary: extractedText,
+                sourceType: 'uploaded',
+                originalFileName: file.originalname,
+                meetingDate: uploadDto.meetingDate ? new Date(uploadDto.meetingDate) : undefined,
+                participants: uploadDto.participants || []
+            });
+
+            return await this.summaryModel.create(newSummary);
+        } catch (error) {
+            throw new Error(`Erro ao fazer upload da ata: ${error.message}`);
+        }
+    }
+
+    private async extractTextFromFile(file: Express.Multer.File): Promise<string> {
+        const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+
+        switch (fileExtension) {
+            case 'pdf':
+                return this.extractTextFromPdf(file.buffer);
+            case 'docx':
+                return this.extractTextFromDocx(file.buffer);
+            case 'txt':
+                return file.buffer.toString('utf-8');
+            default:
+                throw new Error(`Formato de arquivo não suportado: ${fileExtension}. Use PDF, DOCX ou TXT.`);
+        }
+    }
+
+    private async extractTextFromPdf(buffer: Buffer): Promise<string> {
+        const pdf = new PDFParse({ data: buffer });
+        const result = await pdf.getText();
+        await pdf.destroy();
+        return result.text;
+    }
+
+    private async extractTextFromDocx(buffer: Buffer): Promise<string> {
+        const result = await mammoth.extractRawText({ buffer });
+        return result.value;
     }
 }
