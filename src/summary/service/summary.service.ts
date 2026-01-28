@@ -171,9 +171,10 @@ Gere a ata de reunião:
         uploadDto: UploadSummaryDto
     ): Promise<Summary> {
         try {
-            const project = await this.projectModel.findById(uploadDto.projectId);
+            const projectId = uploadDto.projectId?.trim();
+            const project = await this.projectModel.findById(projectId);
             if (!project) {
-                throw new Error(`Projeto com ID ${uploadDto.projectId} não encontrado`);
+                throw new Error(`Projeto com ID ${projectId} não encontrado`);
             }
 
             const extractedText = await this.extractTextFromFile(file);
@@ -183,11 +184,11 @@ Gere a ata de reunião:
             }
 
             const newSummary = new this.summaryModel({
-                projectId: new Types.ObjectId(uploadDto.projectId),
+                projectId: new Types.ObjectId(projectId),
                 summary: extractedText,
                 sourceType: 'uploaded',
                 originalFileName: file.originalname,
-                meetingDate: uploadDto.meetingDate ? new Date(uploadDto.meetingDate) : undefined,
+                meetingDate: uploadDto.meetingDate,
                 participants: uploadDto.participants || []
             });
 

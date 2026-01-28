@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsString, IsOptional, IsArray, IsDateString } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsArray, IsDate } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class UploadSummaryDto {
     @IsString()
@@ -6,8 +7,9 @@ export class UploadSummaryDto {
     projectId: string;
 
     @IsOptional()
-    @IsDateString()
-    meetingDate?: string;
+    @Transform(({ value }) => value ? new Date(value) : undefined)
+    @IsDate()
+    meetingDate?: Date;
 
     @IsOptional()
     @IsArray()
