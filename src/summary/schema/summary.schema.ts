@@ -12,8 +12,8 @@ export class Summary {
     @Prop({ type: Types.ObjectId, ref: 'Project', required: false })
     projectId: Types.ObjectId;
 
-    @Prop({ required: false })
-    meetingData: Date;
+    @Prop({ type: Object, required: false })
+    meetingData: any;
 
     @Prop({ required: true })
     summary: string;
