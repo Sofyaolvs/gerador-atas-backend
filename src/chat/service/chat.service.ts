@@ -43,12 +43,10 @@ export class ChatService {
                 ]
             }).sort({ date: -1 });
 
-            const meetingIds = meetings.map(m => m._id);
-            const meetingIdStrings = meetings.map(m => m._id.toString());
             const summaries = await this.summaryModel.find({
                 $or: [
-                    { meetingId: { $in: meetingIds } },
-                    { meetingId: { $in: meetingIdStrings } }
+                    { projectId: new Types.ObjectId(chatDto.projectId) },
+                    { projectId: chatDto.projectId }
                 ]
             }).sort({ created_at: -1 });
 
@@ -107,10 +105,14 @@ export class ChatService {
         let atasContext = '';
         if (summaries.length > 0) {
             atasContext = summaries.map((s, index) => {
-                const meeting = meetings.find(m => m._id.toString() === s.meetingId.toString());
-                const meetingDate = meeting ? new Date(meeting.date).toLocaleDateString('pt-BR') : 'Data não disponível';
+                const meeting = s.meetingId ? meetings.find(m => m._id.toString() === s.meetingId.toString()) : null;
+                const meetingDate = s.meetingDate
+                    ? new Date(s.meetingDate).toLocaleDateString('pt-BR')
+                    : meeting ? new Date(meeting.date).toLocaleDateString('pt-BR')
+                    : 'Data não disponível';
+                const source = s.sourceType === 'uploaded' ? ` [Upload: ${s.originalFileName || 'arquivo'}]` : '';
                 return `
-        ATA ${index + 1} (${meetingDate})
+        ATA ${index + 1} (${meetingDate})${source}
         ${s.summary}
         `;
             }).join('\n');
