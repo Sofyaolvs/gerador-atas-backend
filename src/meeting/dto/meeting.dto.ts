@@ -21,5 +21,13 @@ export class MeetingDto {
     
     @IsString()
     pending_tasks: string;
- 
+
+    @IsString()
+    @IsNotEmpty()
+    titulo: string;
+
+    @IsString()
+    @IsNotEmpty()
+    conclusoes: string;
+
 }

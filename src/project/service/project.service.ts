@@ -1,18 +1,20 @@
 import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import { ProjectRegistrationDto } from "../dto/project.registration.dto";
-import { InjectModel } from "@nestjs/mongoose";
-import { Project } from "../schema/project.schema";
-import { Model } from "mongoose";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Project } from "../entity/project.entity";
+import { Repository } from "typeorm";
+
 @Injectable()
 export class ProjectService {
 
     constructor(
-@InjectModel(Project.name) private readonly projectModel: Model<Project>) {}
-    
+        @InjectRepository(Project) private readonly projectRepository: Repository<Project>
+    ) {}
+
     async createProject(projectRegistrationDto: ProjectRegistrationDto): Promise<Project> {
         try {
-            const newProject = new this.projectModel(projectRegistrationDto);
-            return await newProject.save();
+            const newProject = this.projectRepository.create(projectRegistrationDto);
+            return await this.projectRepository.save(newProject);
         } catch (error) {
             throw new InternalServerErrorException('Erro ao criar projeto');
         }
@@ -20,15 +22,15 @@ export class ProjectService {
 
     async findAllProjects(): Promise<Project[]>{
         try {
-            return await this.projectModel.find();
+            return await this.projectRepository.find();
         } catch (error) {
             throw new InternalServerErrorException('Erro ao buscar todos os projetos');
         }
     }
 
-    async findProjectById(id:string): Promise<Project> {
+    async findProjectById(id: string): Promise<Project> {
         try {
-            const project = await this.projectModel.findById(id);
+            const project = await this.projectRepository.findOneBy({ id });
             if (!project) {
                 throw new InternalServerErrorException('Projeto não encontrado');
             }
@@ -40,7 +42,7 @@ export class ProjectService {
 
     async deleteProject(id: string): Promise<void> {
         try {
-            await this.projectModel.findByIdAndDelete(id);
+            await this.projectRepository.delete(id);
         } catch (error) {
             throw new InternalServerErrorException('Erro ao deletar projeto');
         }

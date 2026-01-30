@@ -1,12 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { Summary } from "../schema/summary.schema";
-import { Model, Types } from "mongoose";
-import { InjectModel } from "@nestjs/mongoose";
+import { InjectRepository } from "@nestjs/typeorm";
+import { In, Not, Repository } from "typeorm";
+import { Summary } from "../entity/summary.entity";
 import { SummaryDto } from "../dto/summary.dto";
 import { UploadSummaryDto } from "../dto/upload-summary.dto";
-import { Meeting } from "src/meeting/schema/meeting.schems";
-import { Project } from "src/project/schema/project.schema";
+import { Meeting } from "../../meeting/entity/meeting.entity";
+import { Project } from "../../project/entity/project.entity";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { PDFParse } from "pdf-parse";
 import * as mammoth from "mammoth";
@@ -17,9 +17,9 @@ export class SummaryService {
     private genAI: GoogleGenerativeAI;
 
     constructor(
-        @InjectModel(Summary.name) private readonly summaryModel: Model<Summary>,
-        @InjectModel(Meeting.name) private readonly meetingModel: Model<Meeting>,
-        @InjectModel(Project.name) private readonly projectModel: Model<Project>,
+        @InjectRepository(Summary) private readonly summaryRepository: Repository<Summary>,
+        @InjectRepository(Meeting) private readonly meetingRepository: Repository<Meeting>,
+        @InjectRepository(Project) private readonly projectRepository: Repository<Project>,
         private readonly configService: ConfigService
     ) {
         const apiKey = this.configService.get<string>('GEMINI_API_KEY');
@@ -30,29 +30,34 @@ export class SummaryService {
 
     async generateSummary(summaryDto: SummaryDto): Promise<Summary>{
         try {
-            const meeting = await this.meetingModel.findById(summaryDto.meetingId)
+            const meeting = await this.meetingRepository.findOneBy({ id: summaryDto.meetingId });
 
             if(!meeting){
                 throw new Error(`Meeting with ID ${summaryDto.meetingId} not found`);
             }
 
-            // Buscar dados do projeto
-            const project = await this.projectModel.findById(meeting.projectId);
+            const project = await this.projectRepository.findOneBy({ id: meeting.projectId });
             const projectData = project ? {
                 name: project.name,
                 description: project.description
             } : null;
 
-            // Buscar atas anteriores do mesmo projeto
-            const previousMeetings = await this.meetingModel.find({
-                projectId: meeting.projectId,
-                _id: { $ne: meeting._id }
-            }).sort({ date: -1 });
+            const previousMeetings = await this.meetingRepository.find({
+                where: {
+                    projectId: meeting.projectId,
+                    id: Not(meeting.id)
+                },
+                order: { date: 'DESC' }
+            });
 
-            const previousMeetingIds = previousMeetings.map(m => m._id);
-            const previousSummaries = await this.summaryModel.find({
-                meetingId: { $in: previousMeetingIds }
-            }).sort({ created_at: -1 }).limit(3);
+            const previousMeetingIds = previousMeetings.map(m => m.id);
+            const previousSummaries = previousMeetingIds.length > 0
+                ? await this.summaryRepository.find({
+                    where: { meetingId: In(previousMeetingIds) },
+                    order: { created_at: 'DESC' },
+                    take: 3
+                })
+                : [];
 
             const meetingJson = {
                 projectId: meeting.projectId,
@@ -60,18 +65,20 @@ export class SummaryService {
                 date: meeting.date,
                 topics: meeting.topics,
                 pending_tasks: meeting.pending_tasks,
+                titulo: meeting.titulo,
+                conclusoes: meeting.conclusoes,
             }
 
             const generatedSummary = await this.callGeminiAPI(meetingJson, projectData, previousSummaries)
 
-            const newSummary = new this.summaryModel({
-                meetingId: new Types.ObjectId(summaryDto.meetingId),
+            const newSummary = this.summaryRepository.create({
+                meetingId: summaryDto.meetingId,
                 projectId: meeting.projectId,
                 meetingData: meetingJson,
                 summary: generatedSummary,
                 sourceType: 'generated'
-            })
-            return await this.summaryModel.create(newSummary)
+            });
+            return await this.summaryRepository.save(newSummary);
         } catch (error) {
             console.log(error)
             throw new Error(`Erro ao gerar ata de reunião: ${error.message}`);
@@ -116,9 +123,11 @@ Com base nas seguintes informações da reunião, gere uma ata formal e clara:
 ${projectSection}Dados da Reunião:
 
 Data: ${meetingData.date}
+Título da Reunião: ${meetingData.titulo || 'Não informado'}
 Participantes: ${Array.isArray(meetingData.participants) ? meetingData.participants.join(', ') : meetingData.participants}
 Tópicos Discutidos: ${meetingData.topics}
 Tarefas Pendentes: ${meetingData.pending_tasks}
+Conclusões: ${meetingData.conclusoes || 'Não informadas'}
 ${previousSummariesSection}
 Instruções:
 1. Gere uma ata formal contendo cabeçalho e corpo
@@ -126,10 +135,13 @@ Instruções:
 3. Liste apenas os participantes (não incluir ausentes)
 4. Organize os tópicos discutidos de forma clara, objetiva e profissional
 5. Liste as tarefas pendentes com seus respectivos responsáveis, quando informados
-6. Inclua uma seção de Próximos Passos, se aplicável
+6. Use o título da reunião como título da ata
+7. Inclua as conclusões fornecidas em uma seção de Conclusões
+8. Inclua uma seção de Próximos Passos, se aplicável
 7. Se houver atas anteriores, considere o contexto e a continuidade das discussões e tarefas pendentes
 8. Não incluir assinaturas, encerramento, horário ou local
 Utilize português brasileiro e formatação profissional
+
 Gere a ata de reunião:
 `;
 
@@ -138,29 +150,29 @@ Gere a ata de reunião:
         return response.text();
     }
 
-    async findAllSummary():Promise<Summary[]>{
+    async findAllSummary(): Promise<Summary[]> {
         try {
-            return await this.summaryModel.find()
+            return await this.summaryRepository.find();
         } catch (error) {
             throw new Error(`Erro ao buscar atas de reunião: ${error.message}`);
         }
     }
 
-    async findSummaryById(id:string):Promise<Summary|null>{
+    async findSummaryById(id: string): Promise<Summary | null> {
         try {
-            const summary = this.summaryModel.findById(id)
-            if(!summary){
+            const summary = await this.summaryRepository.findOneBy({ id });
+            if (!summary) {
                 throw new Error(`Summary with ID ${id} not found`);
             }
-            return summary
+            return summary;
         } catch (error) {
             throw new Error(`Erro ao buscar ata de reunião: ${error.message}`);
         }
     }
 
-    async deleteSummary(id:string):Promise<void>{
+    async deleteSummary(id: string): Promise<void> {
         try {
-            await this.summaryModel.findByIdAndDelete(id)
+            await this.summaryRepository.delete(id);
         } catch (error) {
             throw new Error(`Erro ao deletar ata de reunião: ${error.message}`);
         }
@@ -172,7 +184,7 @@ Gere a ata de reunião:
     ): Promise<Summary> {
         try {
             const projectId = uploadDto.projectId?.trim();
-            const project = await this.projectModel.findById(projectId);
+            const project = await this.projectRepository.findOneBy({ id: projectId });
             if (!project) {
                 throw new Error(`Projeto com ID ${projectId} não encontrado`);
             }
@@ -183,8 +195,8 @@ Gere a ata de reunião:
                 throw new Error('Não foi possível extrair texto do arquivo');
             }
 
-            const newSummary = new this.summaryModel({
-                projectId: new Types.ObjectId(projectId),
+            const newSummary = this.summaryRepository.create({
+                projectId: projectId,
                 summary: extractedText,
                 sourceType: 'uploaded',
                 originalFileName: file.originalname,
@@ -192,7 +204,7 @@ Gere a ata de reunião:
                 participants: uploadDto.participants || []
             });
 
-            return await this.summaryModel.create(newSummary);
+            return await this.summaryRepository.save(newSummary);
         } catch (error) {
             throw new Error(`Erro ao fazer upload da ata: ${error.message}`);
         }

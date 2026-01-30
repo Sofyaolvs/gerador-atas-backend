@@ -1,8 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-
-import { Project } from '../schema/project.schema';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Project } from '../entity/project.entity';
 
 const PROJECTS = [
   {
@@ -30,8 +29,8 @@ export class SeederService implements OnModuleInit {
   private readonly logger = new Logger(SeederService.name);
 
   constructor(
-    @InjectModel(Project.name)
-    private readonly projectModel: Model<Project>,
+    @InjectRepository(Project)
+    private readonly projectRepository: Repository<Project>,
   ) {}
 
   async onModuleInit() {
@@ -49,7 +48,7 @@ export class SeederService implements OnModuleInit {
 
   private async seedProjects() {
     for (const project of PROJECTS) {
-      const existingProject = await this.projectModel.findOne({
+      const existingProject = await this.projectRepository.findOneBy({
         name: project.name,
       });
 
@@ -58,7 +57,7 @@ export class SeederService implements OnModuleInit {
         continue;
       }
 
-      await this.projectModel.create(project);
+      await this.projectRepository.save(this.projectRepository.create(project));
       this.logger.log(`Projeto criado com sucesso: ${project.name}`);
     }
   }

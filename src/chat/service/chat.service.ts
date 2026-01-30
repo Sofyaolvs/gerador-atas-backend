@@ -1,12 +1,12 @@
 import { Injectable } from "@nestjs/common";
-import { InjectModel } from "@nestjs/mongoose";
+import { InjectRepository } from "@nestjs/typeorm";
 import { ConfigService } from "@nestjs/config";
-import { Model, Types } from "mongoose";
-import { ChatMessage } from "../schema/chat.schema";
+import { Repository } from "typeorm";
+import { ChatMessage } from "../entity/chat-message.entity";
 import { ChatMessageDto } from "../dto/chat.dto";
-import { Summary } from "src/summary/schema/summary.schema";
-import { Project } from "src/project/schema/project.schema";
-import { Meeting } from "src/meeting/schema/meeting.schems";
+import { Summary } from "../../summary/entity/summary.entity";
+import { Project } from "../../project/entity/project.entity";
+import { Meeting } from "../../meeting/entity/meeting.entity";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { v4 as uuidv4 } from 'uuid';
 
@@ -15,10 +15,10 @@ export class ChatService {
     private genAI: GoogleGenerativeAI;
 
     constructor(
-        @InjectModel(ChatMessage.name) private readonly chatMessageModel: Model<ChatMessage>,
-        @InjectModel(Summary.name) private readonly summaryModel: Model<Summary>,
-        @InjectModel(Project.name) private readonly projectModel: Model<Project>,
-        @InjectModel(Meeting.name) private readonly meetingModel: Model<Meeting>,
+        @InjectRepository(ChatMessage) private readonly chatMessageRepository: Repository<ChatMessage>,
+        @InjectRepository(Summary) private readonly summaryRepository: Repository<Summary>,
+        @InjectRepository(Project) private readonly projectRepository: Repository<Project>,
+        @InjectRepository(Meeting) private readonly meetingRepository: Repository<Meeting>,
         private readonly configService: ConfigService,
     ) {
         const apiKey = this.configService.get<string>('GEMINI_CHAT_API_KEY');
@@ -31,39 +31,36 @@ export class ChatService {
         try {
             const conversationId = chatDto.conversationId || uuidv4();
 
-            const project = await this.projectModel.findById(chatDto.projectId);
+            const project = await this.projectRepository.findOneBy({ id: chatDto.projectId });
             if (!project) {
                 throw new Error(`Projeto com ID ${chatDto.projectId} não encontrado`);
             }
 
-            const meetings = await this.meetingModel.find({
-                $or: [
-                    { projectId: new Types.ObjectId(chatDto.projectId) },
-                    { projectId: chatDto.projectId }
-                ]
-            }).sort({ date: -1 });
-
-            const summaries = await this.summaryModel.find({
-                $or: [
-                    { projectId: new Types.ObjectId(chatDto.projectId) },
-                    { projectId: chatDto.projectId }
-                ]
-            }).sort({ created_at: -1 });
-
-           
-            const conversationHistory = await this.chatMessageModel.find({
-                conversationId: conversationId
-            }).sort({ created_at: 1 }).limit(20);
-
-         
-            await this.chatMessageModel.create({
-                projectId: new Types.ObjectId(chatDto.projectId),
-                conversationId: conversationId,
-                role: 'user',
-                content: chatDto.message
+            const meetings = await this.meetingRepository.find({
+                where: { projectId: chatDto.projectId },
+                order: { date: 'DESC' }
             });
 
-           
+            const summaries = await this.summaryRepository.find({
+                where: { projectId: chatDto.projectId },
+                order: { created_at: 'DESC' }
+            });
+
+            const conversationHistory = await this.chatMessageRepository.find({
+                where: { conversationId },
+                order: { created_at: 'ASC' },
+                take: 20
+            });
+
+            await this.chatMessageRepository.save(
+                this.chatMessageRepository.create({
+                    projectId: chatDto.projectId,
+                    conversationId: conversationId,
+                    role: 'user',
+                    content: chatDto.message
+                })
+            );
+
             const response = await this.callGeminiAPI(
                 chatDto.message,
                 project,
@@ -72,13 +69,14 @@ export class ChatService {
                 conversationHistory
             );
 
-            
-            const savedResponse = await this.chatMessageModel.create({
-                projectId: new Types.ObjectId(chatDto.projectId),
-                conversationId: conversationId,
-                role: 'assistant',
-                content: response
-            });
+            const savedResponse = await this.chatMessageRepository.save(
+                this.chatMessageRepository.create({
+                    projectId: chatDto.projectId,
+                    conversationId: conversationId,
+                    role: 'assistant',
+                    content: response
+                })
+            );
 
             return {
                 conversationId: conversationId,
@@ -105,7 +103,7 @@ export class ChatService {
         let atasContext = '';
         if (summaries.length > 0) {
             atasContext = summaries.map((s, index) => {
-                const meeting = s.meetingId ? meetings.find(m => m._id.toString() === s.meetingId.toString()) : null;
+                const meeting = s.meetingId ? meetings.find(m => m.id === s.meetingId) : null;
                 const meetingDate = s.meetingDate
                     ? new Date(s.meetingDate).toLocaleDateString('pt-BR')
                     : meeting ? new Date(meeting.date).toLocaleDateString('pt-BR')
@@ -158,26 +156,33 @@ export class ChatService {
     }
 
     async getConversationHistory(conversationId: string): Promise<ChatMessage[]> {
-        return await this.chatMessageModel.find({
-            conversationId: conversationId
-        }).sort({ created_at: 1 });
+        return await this.chatMessageRepository.find({
+            where: { conversationId },
+            order: { created_at: 'ASC' }
+        });
     }
 
     async getProjectConversations(projectId: string): Promise<any[]> {
-        const conversations = await this.chatMessageModel.aggregate([
-            { $match: { projectId: new Types.ObjectId(projectId) } },
-            { $group: {
-                _id: '$conversationId',
-                lastMessage: { $last: '$content' },
-                lastDate: { $last: '$created_at' },
-                messageCount: { $sum: 1 }
-            }},
-            { $sort: { lastDate: -1 } }
-        ]);
-        return conversations;
+        const conversations = await this.chatMessageRepository
+            .createQueryBuilder('msg')
+            .select('msg.conversationId', 'conversationId')
+            .addSelect('MAX(msg.content)', 'lastMessage')
+            .addSelect('MAX(msg.created_at)', 'lastDate')
+            .addSelect('COUNT(*)', 'messageCount')
+            .where('msg.projectId = :projectId', { projectId })
+            .groupBy('msg.conversationId')
+            .orderBy('MAX(msg.created_at)', 'DESC')
+            .getRawMany();
+
+        return conversations.map(c => ({
+            _id: c.conversationId,
+            lastMessage: c.lastMessage,
+            lastDate: c.lastDate,
+            messageCount: parseInt(c.messageCount)
+        }));
     }
 
     async deleteConversation(conversationId: string): Promise<void> {
-        await this.chatMessageModel.deleteMany({ conversationId: conversationId });
+        await this.chatMessageRepository.delete({ conversationId });
     }
 }

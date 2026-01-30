@@ -1,28 +1,39 @@
 services:
-  mongodb:
-    image: mongo:7.0.12
-    environment:
-      - TZ=America/Fortaleza
+  postgres:
+    image: postgres:16-alpine
     container_name: gerador-atas-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gerador_atas
+      TZ: America/Fortaleza
     ports:
-      - '27017:27017'
+      - '5432:5432'
     volumes:
-      - ./volumes/mongodb_data:/data/db
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 5s
+
   api:
-      build: .
-      ports:
-        - '3001:3000'
-      env_file:
-        - .env.docker
-      depends_on:
-        mongodb:
-          condition: service_healthy
+    build: .
+    container_name: gerador-atas-api
+    ports:
+      - '3001:3000'
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: gerador_atas
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
-  mongodb_data:
+  postgres_data:

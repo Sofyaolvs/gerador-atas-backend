@@ -1,53 +1,52 @@
 import { Injectable } from "@nestjs/common";
-import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
-import { Meeting } from "../schema/meeting.schems";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { Meeting } from "../entity/meeting.entity";
 import { MeetingDto } from "../dto/meeting.dto";
 
 @Injectable()
 export class MeetingService {
     constructor(
-    @InjectModel(Meeting.name) private readonly meetingModel: Model<Meeting>
-    ){}
+        @InjectRepository(Meeting) private readonly meetingRepository: Repository<Meeting>
+    ) {}
 
-    async createMeeting(meetingDto: MeetingDto):Promise<Meeting>{
+    async createMeeting(meetingDto: MeetingDto): Promise<Meeting> {
         try {
-            const newMeeting = new  this.meetingModel(meetingDto)
-            return await this.meetingModel.create(newMeeting)
+            const newMeeting = this.meetingRepository.create(meetingDto);
+            return await this.meetingRepository.save(newMeeting);
         } catch (error) {
-            console.error(error)
-            throw new Error('Erro ao criar reunião')
+            console.error(error);
+            throw new Error('Erro ao criar reunião');
         }
     }
 
-    async getMeetingById(id: string):Promise<Meeting>{
+    async getMeetingById(id: string): Promise<Meeting> {
         try {
-            const meeting = await this.meetingModel.findById(id)
-            if(!meeting){
-                throw new Error('Reunião não encontrada')
+            const meeting = await this.meetingRepository.findOneBy({ id });
+            if (!meeting) {
+                throw new Error('Reunião não encontrada');
             }
-            return meeting
+            return meeting;
         } catch (error) {
-            console.error(error)
-            throw new Error('Erro ao buscar reunião')
+            console.error(error);
+            throw new Error('Erro ao buscar reunião');
         }
     }
 
-    async getAllMeetings():Promise<Meeting[]>{
+    async getAllMeetings(): Promise<Meeting[]> {
         try {
-            const meetings = this.meetingModel.find()
-            return meetings
+            return await this.meetingRepository.find();
         } catch (error) {
-            throw new Error('Erro ao buscar reuniões')
+            throw new Error('Erro ao buscar reuniões');
         }
     }
 
-    async deleteMeeting(id: string):Promise<void>{
+    async deleteMeeting(id: string): Promise<void> {
         try {
-            await this.meetingModel.findByIdAndDelete(id)
+            await this.meetingRepository.delete(id);
         } catch (error) {
-            console.error(error)
-            throw new Error('Erro ao deletar reunião')
+            console.error(error);
+            throw new Error('Erro ao deletar reunião');
         }
     }
 }
